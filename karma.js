@@ -304,7 +304,7 @@ var stringify = function stringify (obj, depth, keyLength) {
         strs.push('[')
         for (var i = 0, ii = obj.length; i < ii; i++) {
           if (i) {
-            strs.push(', ')
+            strs.push(', \n')
           }
           strs.push(stringify(obj[i], depth - 1))
         }
