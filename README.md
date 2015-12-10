@@ -3,6 +3,8 @@
     Problem: Logging objects are casted into a single line.
     Solution: This patch prettify logging object up to depth of 3.
 
+Working for `"karma version" : "0.13.15"`.
+
 ### Installation
 - Search for the function `var stringify = function stringify(...){...}` by
 searching for `*** stringify function ***` in this repo.
