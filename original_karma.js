@@ -1,3 +1,5 @@
+// v0.13.18
+
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 module.exports = {
   VERSION: '%KARMA_VERSION%',
@@ -44,7 +46,7 @@ var Karma = function (socket, iframe, opener, navigator, location) {
   }
 
   this.setupContext = function (contextWindow) {
-    if (hasError) {
+    if (self.config.clearContext && hasError) {
       return
     }
 
@@ -104,7 +106,7 @@ var Karma = function (socket, iframe, opener, navigator, location) {
     var values = []
 
     for (var i = 0; i < args.length; i++) {
-      values.push("\n"+this.stringify(args[i], 3))
+      values.push(this.stringify(args[i], 3))
     }
 
     this.info({log: values.join(', '), type: type})
@@ -157,11 +159,13 @@ var Karma = function (socket, iframe, opener, navigator, location) {
       resultsBuffer = []
     }
 
-    // give the browser some time to breath, there could be a page reload, but because a bunch of
-    // tests could run in the same event loop, we wouldn't notice.
-    setTimeout(function () {
-      clearContext()
-    }, 0)
+    if (self.config.clearContext) {
+      // give the browser some time to breath, there could be a page reload, but because a bunch of
+      // tests could run in the same event loop, we wouldn't notice.
+      setTimeout(function () {
+        clearContext()
+      }, 0)
+    }
 
     socket.emit('complete', result || {}, function () {
       if (returnUrl) {
@@ -219,8 +223,9 @@ var Karma = function (socket, iframe, opener, navigator, location) {
     // reset hasError and reload the iframe
     hasError = false
     startEmitted = false
-    reloadingContext = false
     self.config = cfg
+    // if not clearing context, reloadingContext always true to prevent beforeUnload error
+    reloadingContext = !self.config.clearContext
     navigateContextTo(constant.CONTEXT_URL)
 
     // clear the console before run
@@ -277,10 +282,7 @@ window.karma = new Karma(socket, util.elm('context'), window.open,
 var serialize = require('dom-serialize')
 var instanceOf = require('./util').instanceOf
 
-// **************************
-// *** stringify function ***
-// **************************
-var stringify = function stringify (obj, depth, keyLength) {
+var stringify = function stringify (obj, depth) {
   if (depth === 0) {
     return '...'
   }
@@ -304,7 +306,7 @@ var stringify = function stringify (obj, depth, keyLength) {
         strs.push('[')
         for (var i = 0, ii = obj.length; i < ii; i++) {
           if (i) {
-            strs.push(', \n')
+            strs.push(', ')
           }
           strs.push(stringify(obj[i], depth - 1))
         }
@@ -325,35 +327,21 @@ var stringify = function stringify (obj, depth, keyLength) {
           constructor = obj.constructor.name
         }
 
-        // strs.push(constructor)
-        strs.push("{ ")
+        strs.push(constructor)
+        strs.push('{')
         var first = true
         for (var key in obj) {
           if (Object.prototype.hasOwnProperty.call(obj, key)) {
             if (first) {
               first = false
             } else {
-              // ********************************************
-              // *** format line for every key in object  ***
-              // *** works up to depth 3 only             ***
-              // ********************************************
-              var objSeperator = ", "
-              if(depth === 2 || depth === 3) {
-                objSeperator += "\n  "
-                if(depth === 2) {
-                  objSeperator += "  "
-                  if(keyLength !== undefined) {
-                    objSeperator += new Array(keyLength+3).join(" ")
-                  }
-                }
-              }
-              strs.push(objSeperator)
+              strs.push(', ')
             }
 
-            strs.push(key + ': ' + stringify(obj[key], depth - 1, key.length))
+            strs.push(key + ': ' + stringify(obj[key], depth - 1))
           }
         }
-        strs.push(' }')
+        strs.push('}')
       }
       return strs.join('')
     default:
@@ -363,7 +351,7 @@ var stringify = function stringify (obj, depth, keyLength) {
 
 module.exports = stringify
 
-},{"./util":6,"dom-serialize":49}],5:[function(require,module,exports){
+},{"./util":6,"dom-serialize":50}],5:[function(require,module,exports){
 var VERSION = require('./constants').VERSION
 
 var StatusUpdater = function (socket, titleElement, bannerElement, browsersElement) {
@@ -1164,6 +1152,58 @@ require('./$.string-trim')('trim', function($trim){
   };
 });
 },{"./$.string-trim":32}],49:[function(require,module,exports){
+(function (global){
+
+var NativeCustomEvent = global.CustomEvent;
+
+function useNative () {
+  try {
+    var p = new NativeCustomEvent('cat', { detail: { foo: 'bar' } });
+    return  'cat' === p.type && 'bar' === p.detail.foo;
+  } catch (e) {
+  }
+  return false;
+}
+
+/**
+ * Cross-browser `CustomEvent` constructor.
+ *
+ * https://developer.mozilla.org/en-US/docs/Web/API/CustomEvent.CustomEvent
+ *
+ * @public
+ */
+
+module.exports = useNative() ? NativeCustomEvent :
+
+// IE >= 9
+'function' === typeof document.createEvent ? function CustomEvent (type, params) {
+  var e = document.createEvent('CustomEvent');
+  if (params) {
+    e.initCustomEvent(type, params.bubbles, params.cancelable, params.detail);
+  } else {
+    e.initCustomEvent(type, false, false, void 0);
+  }
+  return e;
+} :
+
+// IE <= 8
+function CustomEvent (type, params) {
+  var e = document.createEventObject();
+  e.type = type;
+  if (params) {
+    e.bubbles = Boolean(params.bubbles);
+    e.cancelable = Boolean(params.cancelable);
+    e.detail = params.detail;
+  } else {
+    e.bubbles = false;
+    e.cancelable = false;
+    e.detail = void 0;
+  }
+  return e;
+}
+
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{}],50:[function(require,module,exports){
 
 /**
  * Module dependencies.
@@ -1398,59 +1438,123 @@ function serializeNodeList (list, context, fn, eventTarget) {
   return r;
 }
 
-},{"custom-event":50,"ent/encode":51,"extend":53,"void-elements":54}],50:[function(require,module,exports){
-(function (global){
+},{"custom-event":49,"ent/encode":53,"extend":51,"void-elements":52}],51:[function(require,module,exports){
+var hasOwn = Object.prototype.hasOwnProperty;
+var toStr = Object.prototype.toString;
+var undefined;
 
-var NativeCustomEvent = global.CustomEvent;
+var isArray = function isArray(arr) {
+	if (typeof Array.isArray === 'function') {
+		return Array.isArray(arr);
+	}
 
-function useNative () {
-  try {
-    var p = new NativeCustomEvent('cat', { detail: { foo: 'bar' } });
-    return  'cat' === p.type && 'bar' === p.detail.foo;
-  } catch (e) {
-  }
-  return false;
-}
+	return toStr.call(arr) === '[object Array]';
+};
 
+var isPlainObject = function isPlainObject(obj) {
+	'use strict';
+	if (!obj || toStr.call(obj) !== '[object Object]') {
+		return false;
+	}
+
+	var has_own_constructor = hasOwn.call(obj, 'constructor');
+	var has_is_property_of_method = obj.constructor && obj.constructor.prototype && hasOwn.call(obj.constructor.prototype, 'isPrototypeOf');
+	// Not own constructor property must be Object
+	if (obj.constructor && !has_own_constructor && !has_is_property_of_method) {
+		return false;
+	}
+
+	// Own properties are enumerated firstly, so to speed up,
+	// if last one is own, then all properties are own.
+	var key;
+	for (key in obj) {}
+
+	return key === undefined || hasOwn.call(obj, key);
+};
+
+module.exports = function extend() {
+	'use strict';
+	var options, name, src, copy, copyIsArray, clone,
+		target = arguments[0],
+		i = 1,
+		length = arguments.length,
+		deep = false;
+
+	// Handle a deep copy situation
+	if (typeof target === 'boolean') {
+		deep = target;
+		target = arguments[1] || {};
+		// skip the boolean and the target
+		i = 2;
+	} else if ((typeof target !== 'object' && typeof target !== 'function') || target == null) {
+		target = {};
+	}
+
+	for (; i < length; ++i) {
+		options = arguments[i];
+		// Only deal with non-null/undefined values
+		if (options != null) {
+			// Extend the base object
+			for (name in options) {
+				src = target[name];
+				copy = options[name];
+
+				// Prevent never-ending loop
+				if (target === copy) {
+					continue;
+				}
+
+				// Recurse if we're merging plain objects or arrays
+				if (deep && copy && (isPlainObject(copy) || (copyIsArray = isArray(copy)))) {
+					if (copyIsArray) {
+						copyIsArray = false;
+						clone = src && isArray(src) ? src : [];
+					} else {
+						clone = src && isPlainObject(src) ? src : {};
+					}
+
+					// Never move original objects, clone them
+					target[name] = extend(deep, clone, copy);
+
+				// Don't bring in undefined values
+				} else if (copy !== undefined) {
+					target[name] = copy;
+				}
+			}
+		}
+	}
+
+	// Return the modified object
+	return target;
+};
+
+
+},{}],52:[function(require,module,exports){
 /**
- * Cross-browser `CustomEvent` constructor.
- *
- * https://developer.mozilla.org/en-US/docs/Web/API/CustomEvent.CustomEvent
- *
- * @public
+ * This file automatically generated from `build.js`.
+ * Do not manually edit.
  */
 
-module.exports = useNative() ? NativeCustomEvent :
+module.exports = [
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "keygen",
+  "link",
+  "menuitem",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr"
+];
 
-// IE >= 9
-'function' === typeof document.createEvent ? function CustomEvent (type, params) {
-  var e = document.createEvent('CustomEvent');
-  if (params) {
-    e.initCustomEvent(type, params.bubbles, params.cancelable, params.detail);
-  } else {
-    e.initCustomEvent(type, false, false, void 0);
-  }
-  return e;
-} :
-
-// IE <= 8
-function CustomEvent (type, params) {
-  var e = document.createEventObject();
-  e.type = type;
-  if (params) {
-    e.bubbles = Boolean(params.bubbles);
-    e.cancelable = Boolean(params.cancelable);
-    e.detail = params.detail;
-  } else {
-    e.bubbles = false;
-    e.cancelable = false;
-    e.detail = void 0;
-  }
-  return e;
-}
-
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],51:[function(require,module,exports){
+},{}],53:[function(require,module,exports){
 var punycode = require('punycode');
 var revEntities = require('./reversed.json');
 
@@ -1491,7 +1595,7 @@ function encode (str, opts) {
     return chars.join('');
 }
 
-},{"./reversed.json":52,"punycode":55}],52:[function(require,module,exports){
+},{"./reversed.json":54,"punycode":55}],54:[function(require,module,exports){
 module.exports={
     "9": "Tab;",
     "10": "NewLine;",
@@ -2807,122 +2911,6 @@ module.exports={
     "64259": "ffilig;",
     "64260": "ffllig;"
 }
-},{}],53:[function(require,module,exports){
-var hasOwn = Object.prototype.hasOwnProperty;
-var toStr = Object.prototype.toString;
-var undefined;
-
-var isArray = function isArray(arr) {
-	if (typeof Array.isArray === 'function') {
-		return Array.isArray(arr);
-	}
-
-	return toStr.call(arr) === '[object Array]';
-};
-
-var isPlainObject = function isPlainObject(obj) {
-	'use strict';
-	if (!obj || toStr.call(obj) !== '[object Object]') {
-		return false;
-	}
-
-	var has_own_constructor = hasOwn.call(obj, 'constructor');
-	var has_is_property_of_method = obj.constructor && obj.constructor.prototype && hasOwn.call(obj.constructor.prototype, 'isPrototypeOf');
-	// Not own constructor property must be Object
-	if (obj.constructor && !has_own_constructor && !has_is_property_of_method) {
-		return false;
-	}
-
-	// Own properties are enumerated firstly, so to speed up,
-	// if last one is own, then all properties are own.
-	var key;
-	for (key in obj) {}
-
-	return key === undefined || hasOwn.call(obj, key);
-};
-
-module.exports = function extend() {
-	'use strict';
-	var options, name, src, copy, copyIsArray, clone,
-		target = arguments[0],
-		i = 1,
-		length = arguments.length,
-		deep = false;
-
-	// Handle a deep copy situation
-	if (typeof target === 'boolean') {
-		deep = target;
-		target = arguments[1] || {};
-		// skip the boolean and the target
-		i = 2;
-	} else if ((typeof target !== 'object' && typeof target !== 'function') || target == null) {
-		target = {};
-	}
-
-	for (; i < length; ++i) {
-		options = arguments[i];
-		// Only deal with non-null/undefined values
-		if (options != null) {
-			// Extend the base object
-			for (name in options) {
-				src = target[name];
-				copy = options[name];
-
-				// Prevent never-ending loop
-				if (target === copy) {
-					continue;
-				}
-
-				// Recurse if we're merging plain objects or arrays
-				if (deep && copy && (isPlainObject(copy) || (copyIsArray = isArray(copy)))) {
-					if (copyIsArray) {
-						copyIsArray = false;
-						clone = src && isArray(src) ? src : [];
-					} else {
-						clone = src && isPlainObject(src) ? src : {};
-					}
-
-					// Never move original objects, clone them
-					target[name] = extend(deep, clone, copy);
-
-				// Don't bring in undefined values
-				} else if (copy !== undefined) {
-					target[name] = copy;
-				}
-			}
-		}
-	}
-
-	// Return the modified object
-	return target;
-};
-
-
-},{}],54:[function(require,module,exports){
-/**
- * This file automatically generated from `build.js`.
- * Do not manually edit.
- */
-
-module.exports = [
-  "area",
-  "base",
-  "br",
-  "col",
-  "embed",
-  "hr",
-  "img",
-  "input",
-  "keygen",
-  "link",
-  "menuitem",
-  "meta",
-  "param",
-  "source",
-  "track",
-  "wbr"
-];
-
 },{}],55:[function(require,module,exports){
 (function (global){
 /*! https://mths.be/punycode v1.3.2 by @mathias */
